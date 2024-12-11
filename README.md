@@ -80,11 +80,6 @@
 
 [![GUI Screen Shot][product-screenshot]](https://github.com/BradHeff/arxis-ai-support/blob/main/images/screenshot1.png)
 
-[![About Screen Shot][about-screenshot]](https://github.com/BradHeff/arxis-ai-support/blob/main/images/Screenshot_about.png)
-
-[![Error Screen Shot][error-screenshot]](https://github.com/BradHeff/arxis-ai-support/blob/main/images/Screenshot_error.png)
-
-[![Menu Screen Shot][menu-screenshot]](https://github.com/BradHeff/arxis-ai-support/blob/main/images/Screenshot_menu.png)
 
 This is a tool designed to help with providing customer support.<br/>
 
