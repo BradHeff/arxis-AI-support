@@ -1,0 +1,8 @@
+asyncio
+numpy
+ttkbootstrap
+pillow
+logging
+tkthread
+openai
+fsm_llm
