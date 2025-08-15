@@ -1,18 +1,123 @@
+#!/usr/bin/env python3
+"""Demo version of the customer support bot that simulates AI responses without needing OpenAI API"""
+
 import ttkbootstrap as ttk
-from support import SupportBot
-import asyncio
 from Gui import create_widgets
-from fsm_llm.state_models import FSMRun
+import asyncio
 import threading
 import logging
-from openai import AsyncOpenAI
-import os
+import random
 
 
 logging.basicConfig(level=logging.DEBUG)
 
 
-class CustomerSupportBot(ttk.Window):
+class MockSupportBot:
+    """Mock version that simulates the real SupportBot without API calls"""
+
+    class MockFSM:
+        def __init__(self):
+            self.current_state = "START"
+            self.completed = False
+
+        def is_completed(self):
+            return self.completed
+
+        def set_next_state(self, state):
+            self.current_state = state
+            if state == "END":
+                self.completed = True
+
+        async def run_state_machine(
+            self, client, user_input, model="gpt-5-nano-2025-08-07"
+        ):
+
+            await asyncio.sleep(random.uniform(1, 3))
+
+            class MockRun:
+                def __init__(self, response):
+                    self.response = response
+
+            if self.current_state == "START":
+                if "name" in user_input.lower() or any(
+                    word
+                    for word in user_input.split()
+                    if len(word) > 2 and word.isalpha()
+                ):
+                    self.set_next_state("CONFIRM")
+                    return MockRun(
+                        "Thank you! You provided your name. Is this correct? (yes/no)"
+                    )
+                else:
+                    return MockRun("Please provide your name to get started.")
+
+            elif self.current_state == "CONFIRM":
+                user_input_lower = user_input.lower().strip()
+
+                positive_indicators = [
+                    "yes",
+                    "y",
+                    "correct",
+                    "true",
+                    "confirm",
+                    "confirmed",
+                    "right",
+                    "accurate",
+                ]
+                negative_indicators = [
+                    "no",
+                    "n",
+                    "incorrect",
+                    "false",
+                    "wrong",
+                    "not correct",
+                    "not right",
+                ]
+
+                if any(
+                    indicator in user_input_lower for indicator in positive_indicators
+                ):
+
+                    if not any(
+                        neg_word in user_input_lower
+                        for neg_word in ["not", "no", "isn't", "aren't", "don't"]
+                    ):
+                        self.set_next_state("IDENTIFIED")
+                        return MockRun(
+                            "Thank you for confirming your details. How can I help you today?"
+                        )
+
+                if any(
+                    indicator in user_input_lower for indicator in negative_indicators
+                ):
+                    self.set_next_state("START")
+                    return MockRun("Let's try again. Please provide your name.")
+
+                return MockRun(
+                    "I didn't understand your response. Please reply with 'yes' if the information is correct, or 'no' if it needs to be changed."
+                )
+
+            elif self.current_state == "IDENTIFIED":
+                if any(
+                    word in user_input.lower()
+                    for word in ["bye", "goodbye", "done", "finished", "quit", "exit"]
+                ):
+                    self.set_next_state("END")
+                    return MockRun("Thank you for contacting us! Have a great day!")
+                else:
+                    return MockRun(
+                        "I understand your concern. Is there anything else I can help you with today?"
+                    )
+
+            else:
+                return MockRun("Goodbye!")
+
+    def __init__(self):
+        self.fsm = self.MockFSM()
+        self.ai_client = None
+
+
+class CustomerSupportBotDemo(ttk.Window):
 
     chat_entry: ttk.Entry
     chat_display: ttk.Text
@@ -20,7 +125,11 @@ class CustomerSupportBot(ttk.Window):
     progress_bar: ttk.Progressbar
     button: ttk.Button
 
-    def __init__(self, themename="darkly"):
+    loop: asyncio.AbstractEventLoop
+    fsm: MockSupportBot
+    conversation_log: list
+
+    def __init__(self):
         super().__init__()
         try:
 
@@ -31,18 +140,13 @@ class CustomerSupportBot(ttk.Window):
             self.loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self.loop)
 
-            self.support_bot = SupportBot()
+            self.fsm = MockSupportBot()
             self.conversation_log = []
-
-            api_key = os.getenv("OPENAI_API_KEY")
-            if not api_key:
-                logging.warning("OPENAI_API_KEY not found in environment variables")
-            self.openai_client = AsyncOpenAI(api_key=api_key)
 
             self.after(100, self.show_welcome_message)
 
         except Exception as e:
-            logging.error(f"Error initializing CustomerSupportBot: {e}")
+            logging.error(f"Error initializing CustomerSupportBotDemo: {e}")
             self.destroy()
 
     def on_closing(self):
@@ -56,7 +160,7 @@ class CustomerSupportBot(ttk.Window):
 
     def show_welcome_message(self):
         """Show welcome message after GUI is fully initialized"""
-        welcome_msg = "Hello! Welcome to Arxis AI Support. I'm here to help you. May I please have your name?"
+        welcome_msg = "Hello! Welcome to Arxis AI Support (Demo Mode). I'm here to help you. May I please have your name?"
 
         threading.Thread(
             target=self.run_async_in_thread,
@@ -111,103 +215,49 @@ class CustomerSupportBot(ttk.Window):
 
         self.chat_entry.config(state="disabled")
 
-        def process_in_thread():
-            error_msg = None
+        future = asyncio.run_coroutine_threadsafe(
+            self.process_chat(user_input), self.loop
+        )
+
+        def enable_input():
             try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(self.process_chat(user_input))
-            except Exception as error:
-                error_msg = str(error)
-                logging.error(f"Error in process_in_thread: {error_msg}")
-            finally:
-                loop.close()
+                future.result(timeout=0.1)
+                self.chat_entry.config(state="normal")
+                self.chat_entry.focus()
+            except Exception:
 
-                if error_msg:
-                    self.after(0, lambda: self.handle_processing_error(error_msg))
-                self.after(0, self.enable_input)
+                self.after(100, enable_input)
 
-        thread = threading.Thread(target=process_in_thread, daemon=True)
-        thread.start()
-
-    def enable_input(self):
-        """Re-enable input field"""
-        try:
-            self.chat_entry.config(state="normal")
-            self.chat_entry.focus()
-        except Exception as e:
-            logging.error(f"Error enabling input: {e}")
-
-    def handle_processing_error(self, error_msg):
-        """Handle processing errors on main thread"""
-        try:
-            self.update_status("Error occurred", show_progress=False)
-
-            threading.Thread(
-                target=self.run_async_in_thread,
-                args=(
-                    self.simulate_streaming_response(
-                        f"Sorry, I encountered an error: {error_msg}"
-                    ),
-                ),
-                daemon=True,
-            ).start()
-        except Exception as e:
-            logging.error(f"Error handling processing error: {e}")
+        self.after(100, enable_input)
 
     async def process_chat(self, user_input):
         try:
+            self.update_status("AI is thinking...", show_progress=True)
 
-            self.after(
-                0, lambda: self.update_status("AI is thinking...", show_progress=True)
-            )
-
-            logging.debug(f"Current FSM state: {self.support_bot.fsm.get_curr_state()}")
+            logging.debug(f"Current FSM state: {self.fsm.fsm.current_state}")
             logging.debug(f"User input: {user_input}")
 
             if user_input.lower() in ["quit", "exit"]:
-                self.support_bot.fsm.set_next_state("END")
-                self.after(
-                    0,
-                    lambda: self.update_status(
-                        "Conversation ended", show_progress=False
-                    ),
-                )
-                self.after(
-                    0,
-                    lambda: self.display_message(
-                        "Agent: Conversation ended. Thank you!", "BOT"
-                    ),
-                )
+                self.fsm.fsm.set_next_state("END")
+                self.update_status("Conversation ended", show_progress=False)
+                self.display_message("Agent: Conversation ended. Thank you!", "BOT")
                 return
 
-            run_state: FSMRun = await self.support_bot.fsm.run_state_machine(
-                self.openai_client, user_input=user_input, model="gpt-5-nano-2025-08-07"
+            run_state = await self.fsm.fsm.run_state_machine(
+                None, user_input=user_input, model="gpt-5-nano-2025-08-07"
             )
 
             await self.simulate_streaming_response(run_state.response)
 
-            if self.support_bot.fsm.is_completed():
-                self.after(
-                    0,
-                    lambda: self.update_status(
-                        "Conversation completed", show_progress=False
-                    ),
-                )
+            if self.fsm.fsm.is_completed():
+                self.update_status("Conversation completed", show_progress=False)
                 await self.simulate_streaming_response("Conversation ended. Thank you!")
             else:
-                self.after(
-                    0,
-                    lambda: self.update_status(
-                        "Waiting for your response...", show_progress=False
-                    ),
-                )
+                self.update_status("Waiting for your response...", show_progress=False)
 
         except Exception as e:
             logging.error(f"Error in process_chat: {e}")
-            self.after(
-                0, lambda: self.update_status("Error occurred", show_progress=False)
-            )
+            self.update_status("Error occurred", show_progress=False)
             await self.simulate_streaming_response(
                 f"Sorry, I encountered an error: {str(e)}"
             )
@@ -267,26 +317,23 @@ class CustomerSupportBot(ttk.Window):
         """Simulate streaming by displaying the response with proper formatting"""
         try:
 
-            self.after(0, self.start_agent_message)
-            await asyncio.sleep(0.1)
+            self.start_agent_message()
 
             formatted_text = self._format_response_text(response_text)
 
             chunks = self._split_text_for_streaming(formatted_text)
 
             for chunk in chunks:
-                self.after(0, lambda text=chunk: self.stream_agent_text(text))
+                self.stream_agent_text(chunk)
                 await asyncio.sleep(0.03)
 
-            self.after(0, lambda: self.stream_agent_text("", is_final=True))
+            self.stream_agent_text("", is_final=True)
 
         except Exception as e:
             logging.error(f"Error in streaming response: {e}")
 
             formatted_fallback = self._format_response_text(response_text)
-            self.after(
-                0, lambda: self.display_message(f"Agent: {formatted_fallback}", "BOT")
-            )
+            self.display_message(f"Agent: {formatted_fallback}", "BOT")
 
     def _format_response_text(self, text):
         """Format the response text for proper display in the GUI"""
@@ -339,5 +386,14 @@ class CustomerSupportBot(ttk.Window):
 
 
 if __name__ == "__main__":
-    app = CustomerSupportBot()
+    print("Starting Arxis AI Support Tool Demo...")
+    print("This demo simulates the chatbot behavior without requiring OpenAI API.")
+    print("Try the following interactions:")
+    print("1. Provide your name")
+    print("2. Confirm with 'yes' or 'no'")
+    print("3. Ask for help")
+    print("4. Say 'goodbye' to end the conversation")
+    print()
+
+    app = CustomerSupportBotDemo()
     app.mainloop()
