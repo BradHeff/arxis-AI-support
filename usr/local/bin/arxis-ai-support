@@ -1,0 +1,23 @@
+#!/bin/bash
+DEBUG=false  # Change this value to toggle debug mode
+
+OS=""
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    OS=$ID
+fi
+
+echo "Detected OS: $OS"
+
+if [[ "$DEBUG" == "true" ]]; then
+    if [[ "$OS" == "ubuntu" ]]; then
+        echo "Running in debug mode..."
+        ~/.venv/bin/python3 ../../lib/Arxis-AI-Support/main.py
+    else
+        echo "Running in debug mode..."
+        python3 ../../lib/Arxis-AI-Support/main.py
+    fi
+else
+    echo "Running in production mode..."
+    python3 /usr/lib/Arxis-AI-Support/main.py
+fi

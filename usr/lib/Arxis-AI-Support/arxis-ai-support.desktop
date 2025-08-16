@@ -1,0 +1,24 @@
+[Desktop Entry]
+# The character encoding of the desktop entry file
+Encoding=UTF-8
+
+# The display name of the application
+Name=Arxis AI Support
+
+# A brief description or comment about the application
+Comment=AI Support tool for Arxis Technicians
+
+# The command that is executed when the application is launched
+Exec=arxis-ai-support
+
+# The path to the icon file representing the application
+Icon=/usr/share/pixmaps/arxis.png
+
+# The type of the desktop entry, in this case, an application
+Type=Application
+
+# Specifies whether the application should run in a terminal
+Terminal=false
+
+# Categories to which the application belongs (Utility category in this case)
+Categories=Utility;Internet;Network;

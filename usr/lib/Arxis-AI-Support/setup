@@ -1,0 +1,28 @@
+#!/bin/bash
+# This script sets up the environment for the Horizon CS Daybook Uploader application.
+# It installs the necessary Python packages and dependencies.
+
+sudo apt install python3 python3-tk python3-pip python3-venv -y
+python3 -m venv ~/.venv
+source ~/.venv/bin/activate
+pip3 install --upgrade pip
+pip3 install -r ../../../requirements.txt
+if [ $? -ne 0 ]; then
+    echo "Failed to install required packages."
+    exit 1
+fi
+echo "Environment setup completed successfully."
+# Ensure the script is executable
+
+get_home() {
+  local result; result="$(getent passwd "$1")" || return
+  echo $result | cut -d : -f 6
+}
+
+echo "Setting up launcher script..."
+sudo mkdir -p "/opt/arxis-ai-support"
+user_home="$(get_home "$USER")"
+cp -f "../../share/applications/arxis-ai-support.desktop" "$user_home/.local/share/applications/"
+sudo cp -f "../../share/pixmaps/arxis.png" "/usr/share/pixmaps/arxis.png"
+echo "Launcher script setup completed successfully."
+# Create a symbolic link to the script in /usr/local/bin

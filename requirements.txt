@@ -6,3 +6,6 @@ logging
 tkthread
 openai
 fsm_llm
+pydantic
+pyinstaller
+git+https://github.com/psf/black

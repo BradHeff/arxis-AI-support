@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=Arxis AI Support
+GenericName=Arxis AI Support Tool
+X-GNOME-FullName=Arxis AI Support Tool
+Comment=AI Support tool for Arxis Technicians
+Exec=arxis-ai-support
+Icon=/usr/share/pixmaps/arxis.png
+Terminal=false
+Type=Application
+Keywords=arxis;support;tool;network;networking;
+StartupNotify=true
+Categories=GTK;;Security;X-GNOME-Settings-Panel;X-GNOME-SystemSettings;X-Unity-Settings-Panel;X-XFCE-SettingsDialog;X-XFCE-SystemSettings;Utility;Networking;
+X-Developer=Brad Heffernan

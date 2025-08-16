@@ -1,0 +1,64 @@
+#!/bin/bash
+# Increment Version in Functions.py
+version_file="Functions.py"
+version_line=$(grep -n '^Version_Number *= *"' "$version_file" | cut -d: -f1)
+if [ -n "$version_line" ]; then
+    current_version=$(grep '^Version_Number *= *"' "$version_file" | sed -E 's/Version_Number *= *"([^"]*)"/\1/')
+    # Split version by dots, increment last number
+    IFS='.' read -r -a parts <<< "$current_version"
+    last_index=$((${#parts[@]}-1))
+    # Check if last part is a number
+    last_part=$(echo "${parts[$last_index]}" | tr -d '[:space:]')
+    if [[ "$last_part" =~ ^[0-9]+$ ]]; then
+        parts[$last_index]=$(( last_part + 1 ))
+        new_version="${parts[0]}"
+        for ((i=1; i<=last_index; i++)); do
+            new_version+=".${parts[$i]}"
+        done
+        # Replace in file
+        sed -i "${version_line}s/Version_Number *= *\"[^\"]*\"/Version_Number = \"$new_version\"/" "$version_file"
+        echo "Version_Number updated: $current_version -> $new_version"
+    else
+        echo "Last version part is not numeric, cannot increment: $current_version"
+        exit 1
+    fi
+else
+    echo "Version variable not found in $version_file"
+fi
+
+pyinstaller --noconfirm --log-level=WARN \
+    --onefile \
+    --hidden-import=ttkbootstrap \
+    --hidden-import=numpy \
+    --hidden-import=asyncio \
+    --hidden-import=fsm_llm \
+    --hidden-import=openai \
+    --hidden-import=PIL \
+    --hidden-import=PIL._tkinter_finder \
+    --hidden-import=PIL.ImageTk \
+    --hidden-import=tkinter \
+    --hidden-import=tkthread \
+    --hidden-import=datetime \
+    --hidden-import=os \
+    --onefile \
+    --name="arxis-ai-support" \
+    --noupx \
+    --distpath=bin \
+    --workpath=build \
+    --specpath=build \
+    main.py
+
+if [ $? -ne 0 ]; then
+    echo "PyInstaller build failed."
+    exit 1
+fi
+
+echo "build completed successfully."
+
+./setup
+
+sudo cp -f "bin/arxis-ai-support" "/opt/arxis-ai-support/arxis-ai-support"
+sudo chmod +x "/opt/arxis-ai-support/arxis-ai-support"
+sudo mkdir -p "/usr/local/bin"
+sudo ln -sf "/opt/arxis-ai-support/arxis-ai-support" "/usr/local/bin/arxis-ai-support"
+echo "Symbolic link created successfully. You can now run 'arxis-ai-support' from anywhere."
