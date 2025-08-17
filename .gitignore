@@ -25,6 +25,7 @@ __pycache__/
 .Python
 build/
 bin/
+deb-build/
 develop-eggs/
 dist/
 downloads/
