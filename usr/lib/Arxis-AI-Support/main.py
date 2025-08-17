@@ -5,6 +5,7 @@ from Gui import create_widgets
 from fsm_llm.state_models import FSMRun
 import threading
 import logging
+from Functions import format_response_text, split_text_for_streaming
 
 
 logging.basicConfig(level=logging.DEBUG)
@@ -26,15 +27,12 @@ class CustomerSupportBot(ttk.Window):
 
             self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-            # Start a dedicated asyncio event loop in a background thread.
-            # All async work (OpenAI calls, FSM) will be scheduled onto this loop
             self.loop = asyncio.new_event_loop()
             self.loop_thread = threading.Thread(
                 target=self.start_event_loop, daemon=True
             )
             self.loop_thread.start()
 
-            # Bot wrapper that encapsulates FSM and client
             self.bot = BotRunner()
             self.conversation_log = []
 
@@ -47,10 +45,10 @@ class CustomerSupportBot(ttk.Window):
     def on_closing(self):
         """Handle window closing"""
         try:
-            # Stop the background loop and wait for thread to exit
+
             if hasattr(self, "loop") and hasattr(self, "loop_thread"):
                 try:
-                    # Stop the loop thread safely
+
                     self.loop.call_soon_threadsafe(self.loop.stop)
                     self.loop_thread.join(timeout=2)
                 except Exception:
@@ -62,7 +60,7 @@ class CustomerSupportBot(ttk.Window):
     def show_welcome_message(self):
         """Show welcome message after GUI is fully initialized"""
         welcome_msg = "Hello! Welcome to Arxis AI Support. I'm here to help you. May I please have your name?"
-        # Schedule the welcome message to run on the background loop
+
         try:
             self.run_async_in_thread(self.simulate_streaming_response(welcome_msg))
         except Exception as e:
@@ -71,7 +69,7 @@ class CustomerSupportBot(ttk.Window):
     def run_async_in_thread(self, coro):
         """Run an async coroutine in a thread"""
         try:
-            # Schedule coroutine on the background loop and attach an error handler
+
             future = asyncio.run_coroutine_threadsafe(coro, self.loop)
 
             def _done_callback(fut):
@@ -86,7 +84,7 @@ class CustomerSupportBot(ttk.Window):
             logging.error(f"Error in async thread: {e}")
 
     def start_event_loop(self):
-        # This runs in the background thread
+
         try:
             asyncio.set_event_loop(self.loop)
             self.loop.run_forever()
@@ -129,7 +127,6 @@ class CustomerSupportBot(ttk.Window):
 
         self.chat_entry.config(state="disabled")
 
-        # Schedule the async processing onto the background loop and handle completion
         try:
             future = asyncio.run_coroutine_threadsafe(
                 self.process_chat(user_input), self.loop
@@ -140,7 +137,7 @@ class CustomerSupportBot(ttk.Window):
                 if exc:
                     logging.error(f"Error in process_chat: {exc}")
                     self.after(0, lambda: self.handle_processing_error(str(exc)))
-                # Re-enable input on the main thread
+
                 self.after(0, self.enable_input)
 
             future.add_done_callback(_on_done)
@@ -195,7 +192,7 @@ class CustomerSupportBot(ttk.Window):
 
             if user_input.lower() in ["quit", "exit"]:
                 try:
-                    # attempt to set FSM to END if available
+
                     getattr(
                         self.bot.support_bot.fsm, "set_next_state", lambda *_: None
                     )("END")
@@ -304,9 +301,9 @@ class CustomerSupportBot(ttk.Window):
             self.after(0, self.start_agent_message)
             await asyncio.sleep(0.1)
 
-            formatted_text = self._format_response_text(response_text)
+            formatted_text = format_response_text(response_text)
 
-            chunks = self._split_text_for_streaming(formatted_text)
+            chunks = split_text_for_streaming(formatted_text)
 
             for chunk in chunks:
                 self.after(0, lambda text=chunk: self.stream_agent_text(text))
@@ -317,59 +314,10 @@ class CustomerSupportBot(ttk.Window):
         except Exception as e:
             logging.error(f"Error in streaming response: {e}")
 
-            formatted_fallback = self._format_response_text(response_text)
+            formatted_fallback = format_response_text(response_text)
             self.after(
                 0, lambda: self.display_message(f"Agent: {formatted_fallback}", "BOT")
             )
-
-    def _format_response_text(self, text):
-        """Format the response text for proper display in the GUI"""
-        if not text:
-            return text
-
-        formatted = text.replace("\\n", "\n")
-
-        lines = formatted.split("\n")
-        processed_lines = []
-
-        for line in lines:
-
-            if line.strip() and line.strip()[0].isdigit() and ")" in line[:5]:
-                processed_lines.append(line)
-
-            elif line.strip().startswith("-"):
-                processed_lines.append(line)
-
-            else:
-                processed_lines.append(line)
-
-        return "\n".join(processed_lines)
-
-    def _split_text_for_streaming(self, text):
-        """Split text into chunks for streaming while preserving formatting"""
-        chunks = []
-        lines = text.split("\n")
-
-        for i, line in enumerate(lines):
-            if line.strip():
-
-                words = line.split()
-                current_chunk = ""
-
-                for word in words:
-                    if current_chunk:
-                        current_chunk += " " + word
-                    else:
-                        current_chunk = word
-
-                    if len(current_chunk) > 20 or word == words[-1]:
-                        chunks.append(current_chunk)
-                        current_chunk = ""
-
-            if i < len(lines) - 1:
-                chunks.append("\n")
-
-        return chunks
 
 
 if __name__ == "__main__":

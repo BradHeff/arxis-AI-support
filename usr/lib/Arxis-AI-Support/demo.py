@@ -7,6 +7,7 @@ import asyncio
 import threading
 import logging
 import random
+from Functions import format_response_text, split_text_for_streaming
 
 
 logging.basicConfig(level=logging.DEBUG)
@@ -319,9 +320,9 @@ class CustomerSupportBotDemo(ttk.Window):
 
             self.start_agent_message()
 
-            formatted_text = self._format_response_text(response_text)
+            formatted_text = format_response_text(response_text)
 
-            chunks = self._split_text_for_streaming(formatted_text)
+            chunks = split_text_for_streaming(formatted_text)
 
             for chunk in chunks:
                 self.stream_agent_text(chunk)
@@ -332,57 +333,8 @@ class CustomerSupportBotDemo(ttk.Window):
         except Exception as e:
             logging.error(f"Error in streaming response: {e}")
 
-            formatted_fallback = self._format_response_text(response_text)
+            formatted_fallback = format_response_text(response_text)
             self.display_message(f"Agent: {formatted_fallback}", "BOT")
-
-    def _format_response_text(self, text):
-        """Format the response text for proper display in the GUI"""
-        if not text:
-            return text
-
-        formatted = text.replace("\\n", "\n")
-
-        lines = formatted.split("\n")
-        processed_lines = []
-
-        for line in lines:
-
-            if line.strip() and line.strip()[0].isdigit() and ")" in line[:5]:
-                processed_lines.append(line)
-
-            elif line.strip().startswith("-"):
-                processed_lines.append(line)
-
-            else:
-                processed_lines.append(line)
-
-        return "\n".join(processed_lines)
-
-    def _split_text_for_streaming(self, text):
-        """Split text into chunks for streaming while preserving formatting"""
-        chunks = []
-        lines = text.split("\n")
-
-        for i, line in enumerate(lines):
-            if line.strip():
-
-                words = line.split()
-                current_chunk = ""
-
-                for word in words:
-                    if current_chunk:
-                        current_chunk += " " + word
-                    else:
-                        current_chunk = word
-
-                    if len(current_chunk) > 20 or word == words[-1]:
-                        chunks.append(current_chunk)
-                        current_chunk = ""
-
-            if i < len(lines) - 1:
-                chunks.append("\n")
-
-        return chunks
 
 
 if __name__ == "__main__":
