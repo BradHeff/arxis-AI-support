@@ -8,7 +8,33 @@ from dotenv import load_dotenv
 
 
 logging.basicConfig(level=logging.DEBUG)
+# Load project-local .env first
 load_dotenv()
+
+# Also attempt to load a system-wide env file so packaged installs can provide
+# the OPENAI_API_KEY via /etc/arxis-ai-support/env. Only try to load it if the
+# current user can read the file to avoid noisy permission errors.
+SYSTEM_ENV = "/etc/arxis-ai-support/env"
+try:
+    if os.path.exists(SYSTEM_ENV) and os.access(SYSTEM_ENV, os.R_OK):
+        load_dotenv(SYSTEM_ENV, override=False)
+    else:
+        logging.debug(f"{SYSTEM_ENV} not found or not readable by current user")
+except Exception as e:
+    logging.debug(f"Could not load system env file {SYSTEM_ENV}: {e}")
+
+# Also attempt to read a per-user config which is commonly used for GUI apps. This
+# allows end-users to put their API key in ~/.config/arxis-ai-support/env which is
+# readable by the running user and avoids requiring root-owned files.
+try:
+    user_env = os.path.expanduser("~/.config/arxis-ai-support/env")
+    if os.path.exists(user_env) and os.access(user_env, os.R_OK):
+        load_dotenv(user_env, override=True)
+        logging.debug(f"Loaded user env from {user_env}")
+    else:
+        logging.debug(f"User env {user_env} not found or not readable")
+except Exception as e:
+    logging.debug(f"Could not load user env file {user_env}: {e}")
 
 
 class UserIdentificationResponse(BaseModel):

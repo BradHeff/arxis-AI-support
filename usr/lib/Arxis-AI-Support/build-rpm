@@ -59,6 +59,16 @@ sed -i "s/^Version[[:space:]]*=[[:space:]]*\".*\"/Version = \"$NEW_VERSION\"/" "
 
 echo "Version updated to $NEW_VERSION in Functions.py"
 
+# Load OPENAI_API_KEY from project root .env if present and export as ARXIS_API_KEY
+PROJECT_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+if [ -f "$PROJECT_ROOT/.env" ]; then
+    # shellcheck disable=SC1090
+    set -o allexport
+    . "$PROJECT_ROOT/.env"
+    set +o allexport
+    export ARXIS_API_KEY="$OPENAI_API_KEY"
+fi
+
 # Extract the version number from the .spec file to confirm
 VERSION=$(grep -E '^Version:[[:space:]]*' $SPEC_DIR/$APP_NAME.spec | awk '{print $2}')
 echo "Confirmed version in spec file: $VERSION"
@@ -87,6 +97,28 @@ else
     exit 1
 fi
 
+# If ARXIS_API_KEY was exported earlier, embed an /etc env file into the tarball contents
+if [ -n "$ARXIS_API_KEY" ]; then
+    echo "Embedding API key into RPM payload (sensitive)"
+    TMP_ETC_DIR=$(mktemp -d)
+    mkdir -p "$TMP_ETC_DIR/etc/arxis-ai-support"
+    printf '%s\n' "OPENAI_API_KEY=${ARXIS_API_KEY}" > "$TMP_ETC_DIR/etc/arxis-ai-support/env"
+    chown root:root "$TMP_ETC_DIR/etc/arxis-ai-support/env" || true
+    # Prefer making file group-readable by 'users' group to allow desktop access
+    if getent group users >/dev/null 2>&1; then
+        chgrp users "$TMP_ETC_DIR/etc/arxis-ai-support/env" || true
+        chmod 0640 "$TMP_ETC_DIR/etc/arxis-ai-support/env" || true
+        echo "Note: embedded env file will be root:users 0640 in the RPM payload"
+    else
+        # No 'users' group; fall back to world-readable but warn
+        chmod 0644 "$TMP_ETC_DIR/etc/arxis-ai-support/env" || true
+        echo "Warning: embedded env file will be world-readable (0644) because group 'users' not found"
+    fi
+    # Merge this into the tar used for SOURCES
+    tar --append -f $APP_NAME-$VERSION.tar.gz -C "$TMP_ETC_DIR" etc || true
+    rm -rf "$TMP_ETC_DIR"
+fi
+
 # Step 3: Copy the .tar.gz to ZIP_DIR
 echo "Copying the .tar.gz to ZIP_DIR..."
 cp $APP_NAME-$VERSION.tar.gz $ZIP_DIR/
@@ -100,6 +132,15 @@ cp -a ../../share/pixmaps/arxis.png $BUILD_DIR/ || echo "No image found to copy.
 cp -a ../../local/bin/$APP_NAME $BUILD_DIR/ || echo "No local binaries found to copy."
 # cp -aR Settings $BUILD_DIR/ || echo "No Data directory found to copy."
 cp -a *.py $BUILD_DIR/ || echo "No python files found to copy."
+
+# Also include an env.sample for administrators to see how to create a user config
+mkdir -p $BUILD_DIR/etc/arxis-ai-support || true
+cat > $BUILD_DIR/etc/arxis-ai-support/env.sample <<'_SAMPLE_'
+# Example environment file for Arxis AI Support
+# Create /etc/arxis-ai-support/env with the line below and set permissions to 600
+# OPENAI_API_KEY=your_api_key_here
+_SAMPLE_
+chmod 0644 $BUILD_DIR/etc/arxis-ai-support/env.sample || true
 
 # Step 5: Build the RPM package
 echo "Building RPM package..."

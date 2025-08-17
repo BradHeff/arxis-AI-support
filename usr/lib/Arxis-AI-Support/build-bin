@@ -26,21 +26,21 @@ else
     echo "Version variable not found in $version_file"
 fi
 
-pyinstaller --noconfirm --log-level=WARN \
+pyinstaller --noconfirm --log-level=WARN --clean --strip \
     --onefile \
     --hidden-import=ttkbootstrap \
-    --hidden-import=numpy \
     --hidden-import=asyncio \
     --hidden-import=fsm_llm \
     --hidden-import=openai \
     --hidden-import=PIL \
-    --hidden-import=PIL._tkinter_finder \
     --hidden-import=PIL.ImageTk \
-    --hidden-import=tkinter \
+    --hidden-import=PIL._tkinter_finder \
+    --hidden-import=PIL._imaging \
     --hidden-import=tkthread \
-    --hidden-import=datetime \
-    --hidden-import=os \
-    --onefile \
+    --exclude-module=numpy \
+    --exclude-module=pyarrow \
+    --exclude-module=scipy \
+    --exclude-module=pandas \
     --name="arxis-ai-support" \
     --noupx \
     --distpath=bin \
@@ -62,3 +62,14 @@ sudo chmod +x "/opt/arxis-ai-support/arxis-ai-support"
 sudo mkdir -p "/usr/local/bin"
 sudo ln -sf "/opt/arxis-ai-support/arxis-ai-support" "/usr/local/bin/arxis-ai-support"
 echo "Symbolic link created successfully. You can now run 'arxis-ai-support' from anywhere."
+
+# Install a sample env file for administrators (not containing keys)
+sudo mkdir -p /etc/arxis-ai-support
+cat >/tmp/arxis-env.sample <<'_SAMPLE_'
+# Example environment file for Arxis AI Support
+# Create /etc/arxis-ai-support/env with the line below and set permissions to 600
+# API_KEY=your_api_key_here
+_SAMPLE_
+sudo mv /tmp/arxis-env.sample /etc/arxis-ai-support/env.sample
+sudo chown root:root /etc/arxis-ai-support/env.sample
+sudo chmod 0644 /etc/arxis-ai-support/env.sample

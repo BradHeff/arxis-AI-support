@@ -1,0 +1,325 @@
+#!/bin/bash
+# Stop script on errors
+set -e
+
+APP_NAME="arxis-ai-support"
+BINARY_NAME="arxis-ai-support"
+APP_VERSION=""
+VERSION="1"
+BUILD_DIR="deb-build"
+TEMP_DIR=$(mktemp -d)
+
+# Check for required tools
+echo "Checking for required tools..."
+if ! command -v dpkg-deb &> /dev/null; then
+    echo "Error: dpkg-deb is not installed."
+    echo ""
+    if command -v apt-get &> /dev/null; then
+        echo "Install with: sudo apt-get update && sudo apt-get install dpkg-dev"
+    elif command -v yum &> /dev/null; then
+        echo "Install with: sudo yum install dpkg-dev"
+    elif command -v dnf &> /dev/null; then
+        echo "Install with: sudo dnf install dpkg-dev"
+    elif command -v pacman &> /dev/null; then
+        echo "Install with: sudo pacman -S dpkg"
+    else
+        echo "Please install dpkg-dev package using your system's package manager"
+    fi
+    echo ""
+    echo "Alternatively, you can use the build-apt-manual script for step-by-step instructions."
+    exit 1
+fi
+
+# Increment Version in Functions.py
+version_file="Functions.py"
+version_line=$(grep -n '^Version_Number *= *"' "$version_file" | cut -d: -f1)
+if [ -n "$version_line" ]; then
+    current_version=$(grep '^Version_Number *= *"' "$version_file" | sed -E 's/Version_Number *= *"([^"]*)"/\1/')
+    # Split version by dots, increment last number
+    IFS='.' read -r -a parts <<< "$current_version"
+    last_index=$((${#parts[@]}-1))
+    # Check if last part is a number
+    last_part=$(echo "${parts[$last_index]}" | tr -d '[:space:]')
+    if [[ "$last_part" =~ ^[0-9]+$ ]]; then
+        parts[$last_index]=$(( last_part + 1 ))
+        new_version="${parts[0]}"
+        for ((i=1; i<=last_index; i++)); do
+            new_version+=".${parts[$i]}"
+        done
+        # Replace in file
+        sed -i "${version_line}s/Version_Number *= *\"[^\"]*\"/Version_Number = \"$new_version\"/" "$version_file"
+        echo "Version_Number updated: $current_version -> $new_version"
+        APP_VERSION="$new_version"
+    else
+        echo "Last version part is not numeric, cannot increment: $current_version"
+        exit 1
+    fi
+else
+    echo "Version variable not found in $version_file"
+    exit 1
+fi
+
+APP_VERSION="$APP_VERSION-$VERSION"
+
+# Load API key from project root .env if present (do not echo value)
+if [ -f "$(dirname "$(pwd)" )/../../.env" ]; then
+    # compute repo root relative to this script: ../../..
+    ENV_PATH="$(dirname "$(pwd)" )/../../.env"
+    # fallback: also check repo root two levels up
+fi
+
+# Try simpler path: project root is three directories up from this script
+PROJECT_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+if [ -f "$PROJECT_ROOT/.env" ]; then
+    # shellcheck disable=SC1090
+    set -o allexport
+    # load without printing
+    . "$PROJECT_ROOT/.env"
+    set +o allexport
+    # export the key to ARXIS_API_KEY for use in postinst
+    export ARXIS_API_KEY="$OPENAI_API_KEY"
+fi
+
+echo "Building PyInstaller binary (excluding large optional libs)..."
+# Use --clean and --strip to reduce size; explicitly exclude heavy modules not used by the app
+pyinstaller --noconfirm --log-level=WARN --clean --strip \
+    --onefile \
+    --hidden-import=ttkbootstrap \
+    --hidden-import=tkthread \
+    --hidden-import=asyncio \
+    --hidden-import=PIL \
+    --hidden-import=PIL.ImageTk \
+    --hidden-import=PIL._tkinter_finder \
+    --hidden-import=PIL._imaging \
+    --hidden-import=openai \
+    --hidden-import=fsm_llm \
+    --hidden-import=pydantic \
+    --exclude-module=numpy \
+    --exclude-module=pyarrow \
+    --exclude-module=scipy \
+    --exclude-module=pandas \
+    --name="$BINARY_NAME" \
+    --noupx \
+    --distpath=bin \
+    --workpath=build \
+    --specpath=build \
+    main.py
+
+if [ $? -ne 0 ]; then
+    echo "PyInstaller build failed."
+    exit 1
+fi
+
+echo "PyInstaller build completed successfully."
+
+# Create Debian package structure
+echo "Creating Debian package structure..."
+PACKAGE_DIR="$TEMP_DIR/${APP_NAME}_${APP_VERSION}"
+mkdir -p "$PACKAGE_DIR/DEBIAN"
+mkdir -p "$PACKAGE_DIR/usr/bin"
+mkdir -p "$PACKAGE_DIR/usr/share/applications"
+mkdir -p "$PACKAGE_DIR/usr/share/pixmaps"
+mkdir -p "$PACKAGE_DIR/usr/share/doc/$APP_NAME"
+mkdir -p "$PACKAGE_DIR/etc/arxis-ai-support"
+
+# If ARXIS_API_KEY is present at packaging time, embed it into the package payload (secure file)
+if [ -n "$ARXIS_API_KEY" ]; then
+    printf '%s\n' "OPENAI_API_KEY=${ARXIS_API_KEY}" > "$PACKAGE_DIR/etc/arxis-ai-support/env"
+    chown root:root "$PACKAGE_DIR/etc/arxis-ai-support/env" || true
+    chmod 0600 "$PACKAGE_DIR/etc/arxis-ai-support/env" || true
+fi
+
+# Copy binary
+cp "bin/$BINARY_NAME" "$PACKAGE_DIR/usr/bin/"
+chmod +x "$PACKAGE_DIR/usr/bin/$BINARY_NAME"
+
+# Copy and modify desktop file
+cp "arxis-ai-support.desktop" "$PACKAGE_DIR/usr/share/applications/"
+# Update the desktop file to use the correct icon path and executable
+sed -i 's|Exec=arxis-ai-support|Exec=/usr/bin/arxis-ai-support|g' "$PACKAGE_DIR/usr/share/applications/arxis-ai-support.desktop"
+sed -i 's|Icon=/usr/share/pixmaps/arxis.png|Icon=arxis|g' "$PACKAGE_DIR/usr/share/applications/arxis-ai-support.desktop"
+
+# Copy icon (look for icon files)
+if [ -f "arxis.png" ]; then
+    cp "arxis.png" "$PACKAGE_DIR/usr/share/pixmaps/arxis.png"
+elif [ -f "../../share/pixmaps/arxis.png" ]; then
+    cp "../../share/pixmaps/arxis.png" "$PACKAGE_DIR/usr/share/pixmaps/arxis.png"
+fi
+
+# Create control file
+cat > "$PACKAGE_DIR/DEBIAN/control" << EOF
+Package: $APP_NAME
+Version: $APP_VERSION
+Section: utils
+Priority: optional
+Architecture: amd64
+Depends: python3, python3-tk, python3-pil, python3-venv
+Maintainer: Brad Heffernan <bradheffernan83@outlook.com>
+Description: Arxis AI Support Tool
+ AI Support Tool with GUI interface.
+ Features include:
+  - GPT5 Model
+  - Trained for tech support
+  - Built with Python and tkinter
+Homepage: https://github.com/BradHeff/arxis-ai-support
+EOF
+
+# Create copyright file
+cat > "$PACKAGE_DIR/usr/share/doc/$APP_NAME/copyright" << EOF
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: arxis-ai-support
+Source: https://github.com/BradHeff/arxis-ai-support
+
+Files: *
+Copyright: $(date +%Y) Brad Heffernan
+License: MIT
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+ .
+ The above copyright notice and this permission notice shall be included in all
+ copies or substantial portions of the Software.
+ .
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ SOFTWARE.
+EOF
+
+# Create changelog
+cat > "$PACKAGE_DIR/usr/share/doc/$APP_NAME/changelog.Debian" << EOF
+$APP_NAME ($APP_VERSION) unstable; urgency=medium
+
+  * Version $APP_VERSION release
+  * Updated application functionality
+
+ -- Brad Heffernan <bradheffernan83@outlook.com>  $(date -R)
+EOF
+
+# Compress changelog
+gzip -9 "$PACKAGE_DIR/usr/share/doc/$APP_NAME/changelog.Debian"
+
+# Create postinst script for desktop integration
+cat > "$PACKAGE_DIR/DEBIAN/postinst" << 'EOF'
+#!/bin/bash
+set -e
+# Update desktop database
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database -q
+fi
+
+# Update mime database
+if command -v update-mime-database >/dev/null 2>&1; then
+    update-mime-database /usr/share/mime >/dev/null 2>&1 || true
+fi
+
+# Create configuration directory if missing
+CFG_DIR=/etc/arxis-ai-support
+ENV_FILE="$CFG_DIR/env"
+SAMPLE_FILE="$CFG_DIR/env.sample"
+
+mkdir -p "$CFG_DIR"
+chown root:root "$CFG_DIR"
+chmod 0750 "$CFG_DIR"
+
+# If installer provided OPENAI_API_KEY as an environment variable (useful for automated installs), write it.
+if [ -n "$OPENAI_API_KEY" ]; then
+    # Use printf to avoid issues with embedded characters and ensure proper quoting
+    printf '%s\n' "OPENAI_API_KEY=${OPENAI_API_KEY}" > "$ENV_FILE"
+    chown root:root "$ENV_FILE"
+    chmod 0600 "$ENV_FILE"
+fi
+
+# If the package included an /etc env file, attempt to make it readable to typical
+# desktop users by setting group-read if a common 'users' group exists. This
+# avoids making the secret world-readable while allowing non-root desktop users
+# (who are in the 'users' group) to read it. If the 'users' group is not present
+# fall back to 0644 and warn the administrator.
+if [ -f "$ENV_FILE" ]; then
+    if getent group users >/dev/null 2>&1; then
+        chgrp users "$ENV_FILE" || true
+        chmod 0640 "$ENV_FILE" || true
+        printf 'NOTE: %s is owned by root and group "users" with mode 0640. Add users to the "users" group to allow access, or use a per-user config in ~/.config/arxis-ai-support/env.\n' "$ENV_FILE" >&2
+    else
+        # 'users' group not found on this system; make file world-readable but warn
+        chmod 0644 "$ENV_FILE" || true
+        printf 'WARNING: %s is world-readable (0644) because common group "users" was not found. This exposes the API key to all local users. Consider creating a restricted group and adjusting permissions.\n' "$ENV_FILE" >&2
+    fi
+fi
+
+# If sample file bundled with package, ensure it's present for admin guidance
+if [ ! -f "$SAMPLE_FILE" ]; then
+    cat > "$SAMPLE_FILE" <<'_SAMPLE_'
+# Example environment file for Arxis AI Support
+# Create /etc/arxis-ai-support/env with the line below and set permissions to 600
+# OPENAI_API_KEY=your_api_key_here
+_SAMPLE_
+    chown root:root "$SAMPLE_FILE"
+    chmod 0644 "$SAMPLE_FILE"
+fi
+
+# Reload systemd if unit present
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl daemon-reload || true
+fi
+
+exit 0
+EOF
+
+chmod +x "$PACKAGE_DIR/DEBIAN/postinst"
+
+# Create postrm script for cleanup
+cat > "$PACKAGE_DIR/DEBIAN/postrm" << 'EOF'
+#!/bin/bash
+set -e
+
+case "$1" in
+    remove|purge)
+        # Update desktop database
+        if command -v update-desktop-database >/dev/null 2>&1; then
+            update-desktop-database -q
+        fi
+        
+        # Update mime database
+        if command -v update-mime-database >/dev/null 2>&1; then
+            update-mime-database /usr/share/mime >/dev/null 2>&1 || true
+        fi
+        ;;
+esac
+
+exit 0
+EOF
+
+chmod +x "$PACKAGE_DIR/DEBIAN/postrm"
+
+# Build the .deb package
+echo "Building .deb package..."
+DEB_FILE="${APP_NAME}_${APP_VERSION}_amd64.deb"
+
+# Ensure we're in the right directory for dpkg-deb
+cd "$TEMP_DIR"
+dpkg-deb --root-owner-group --build "${APP_NAME}_${APP_VERSION}" "$DEB_FILE"
+
+# Move the .deb file to the build directory
+cd - > /dev/null
+mkdir -p "$BUILD_DIR"
+mv "$TEMP_DIR/$DEB_FILE" "$BUILD_DIR/"
+
+# Cleanup
+rm -rf "$TEMP_DIR"
+
+echo "APT package build completed successfully!"
+echo "Package created: $BUILD_DIR/$DEB_FILE"
+echo ""
+echo "To install the package:"
+echo "  sudo dpkg -i $BUILD_DIR/$DEB_FILE"
+echo "  sudo apt-get install -f  # If there are dependency issues"
+echo ""
+echo "To remove the package:"
+echo "  sudo apt-get remove $APP_NAME"
