@@ -2,7 +2,7 @@
 """Demo version of the customer support bot that simulates AI responses without needing OpenAI API"""
 
 import ttkbootstrap as ttk
-from Gui import create_widgets
+from Gui import create_widgets, insert_copy_button
 import asyncio
 import threading
 import logging
@@ -45,9 +45,9 @@ class MockSupportBot:
                     for word in user_input.split()
                     if len(word) > 2 and word.isalpha()
                 ):
-                    self.set_next_state("CONFIRM")
+                    self.set_next_state("IDENTIFIED")
                     return MockRun(
-                        "Thank you! You provided your name. Is this correct? (yes/no)"
+                        "Thank you! You provided your name. How can I help you today?"
                     )
                 else:
                     return MockRun("Please provide your name to get started.")
@@ -330,11 +330,33 @@ class CustomerSupportBotDemo(ttk.Window):
 
             self.stream_agent_text("", is_final=True)
 
+            try:
+                # store last response for copy and enable button if present
+                self.last_agent_response = formatted_text
+                if hasattr(self, "copy_button"):
+                    self.copy_button.config(state=ttk.NORMAL)
+                try:
+                    insert_copy_button(self, formatted_text)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
         except Exception as e:
             logging.error(f"Error in streaming response: {e}")
 
             formatted_fallback = format_response_text(response_text)
             self.display_message(f"Agent: {formatted_fallback}", "BOT")
+            try:
+                self.last_agent_response = formatted_fallback
+                if hasattr(self, "copy_button"):
+                    self.copy_button.config(state=ttk.NORMAL)
+                try:
+                    insert_copy_button(self, formatted_fallback)
+                except Exception:
+                    pass
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
@@ -342,7 +364,7 @@ if __name__ == "__main__":
     print("This demo simulates the chatbot behavior without requiring OpenAI API.")
     print("Try the following interactions:")
     print("1. Provide your name")
-    print("2. Confirm with 'yes' or 'no'")
+    # no explicit confirmation step is required; providing the name is enough
     print("3. Ask for help")
     print("4. Say 'goodbye' to end the conversation")
     print()

@@ -1,7 +1,7 @@
 import ttkbootstrap as ttk
 from bot import BotRunner
 import asyncio
-from Gui import create_widgets
+from Gui import create_widgets, insert_copy_button
 from fsm_llm.state_models import FSMRun
 import threading
 import logging
@@ -309,7 +309,25 @@ class CustomerSupportBot(ttk.Window):
                 self.after(0, lambda text=chunk: self.stream_agent_text(text))
                 await asyncio.sleep(0.03)
 
+            # mark final and store the full response for copying
             self.after(0, lambda: self.stream_agent_text("", is_final=True))
+            try:
+                # store last response on window for copy action
+                full = formatted_text
+                self.after(0, lambda: setattr(self, "last_agent_response", full))
+                # enable copy button if present
+                self.after(
+                    0,
+                    lambda: getattr(self, "copy_button", None)
+                    and self.copy_button.config(state=ttk.NORMAL),
+                )
+                # insert an inline copy button for this message
+                try:
+                    self.after(0, lambda: insert_copy_button(self, full))
+                except Exception:
+                    pass
+            except Exception:
+                pass
 
         except Exception as e:
             logging.error(f"Error in streaming response: {e}")
@@ -318,6 +336,21 @@ class CustomerSupportBot(ttk.Window):
             self.after(
                 0, lambda: self.display_message(f"Agent: {formatted_fallback}", "BOT")
             )
+            try:
+                self.after(
+                    0, lambda: setattr(self, "last_agent_response", formatted_fallback)
+                )
+                self.after(
+                    0,
+                    lambda: getattr(self, "copy_button", None)
+                    and self.copy_button.config(state=ttk.NORMAL),
+                )
+                try:
+                    self.after(0, lambda: insert_copy_button(self, formatted_fallback))
+                except Exception:
+                    pass
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

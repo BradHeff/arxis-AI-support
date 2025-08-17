@@ -15,8 +15,7 @@ class UserIdentificationResponse(BaseModel):
     user_name: str
 
 
-class ConfirmationResponse(BaseModel):
-    confirmation: str
+# ConfirmationResponse removed: confirmation step was removed and is no longer used.
 
 
 class SupportBot:
@@ -46,7 +45,6 @@ class SupportBot:
         """Define all FSM states by delegating to individual state definition methods."""
         try:
             self._define_start_state()
-            self._define_confirm_state()
             self._define_identified_state()
             self._define_end_state()
         except Exception as e:
@@ -63,7 +61,7 @@ class SupportBot:
                 "name. Please ensure the user provides their name before proceeding."
             ),
             response_model=UserIdentificationResponse,
-            transitions={"CONFIRM": "Once the user provides their name"},
+            transitions={"IDENTIFIED": "Once the user provides their name"},
         )
         async def start_state(
             fsm: LLMStateMachine,
@@ -72,84 +70,21 @@ class SupportBot:
         ):
             try:
                 logging.debug(f"START state: {response}")
-                if will_transition and fsm.get_next_state() == "CONFIRM":
+                if will_transition and fsm.get_next_state() == "IDENTIFIED":
                     fsm.set_context_data(
                         "verified_user",
                         {"user_name": response.user_name},
                     )
                     return (
-                        f"Thank you! You provided your name as: {response.user_name}\n"
-                        f"Is this correct? (yes/no)"
+                        f"Thank you! You provided your name as: {response.user_name}.\n"
+                        f"How can I help you today?"
                     )
                 return "Please provide your name to get started."
             except Exception as e:
                 logging.error(f"Error in start_state: {e}")
                 return "I'm sorry, there was an error processing your request. Please try again."
 
-    def _define_confirm_state(self):
-        """Define the CONFIRM state for user confirmation."""
-
-        @self.fsm.define_state(
-            state_key="CONFIRM",
-            prompt_template="Please confirm the information you provided. Reply with 'yes' or 'no'.",
-            response_model=ConfirmationResponse,
-            transitions={
-                "IDENTIFIED": "If the user confirms the details are correct",
-                "START": "If the user indicates the details are incorrect",
-            },
-        )
-        async def confirm_state(
-            fsm: LLMStateMachine,
-            response: ConfirmationResponse,
-            will_transition: bool,
-        ):
-            try:
-                logging.debug(f"CONFIRM state: {response}")
-                return self._process_confirmation(response.confirmation, fsm)
-            except Exception as e:
-                logging.error(f"Error in confirm_state: {e}")
-                return "I'm sorry, there was an error processing your confirmation. Please try again."
-
-    def _process_confirmation(self, confirmation: str, fsm: LLMStateMachine) -> str:
-        """Process user confirmation and set appropriate next state."""
-        confirmation = confirmation.lower().strip()
-
-        positive_indicators = [
-            "yes",
-            "y",
-            "correct",
-            "true",
-            "confirm",
-            "confirmed",
-            "right",
-            "accurate",
-        ]
-        negative_indicators = [
-            "no",
-            "n",
-            "incorrect",
-            "false",
-            "wrong",
-            "not correct",
-            "not right",
-        ]
-
-        if any(indicator in confirmation for indicator in positive_indicators):
-
-            if not any(
-                neg_word in confirmation
-                for neg_word in ["not", "no", "isn't", "aren't", "don't"]
-            ):
-                fsm.set_next_state("IDENTIFIED")
-                return (
-                    "Thank you for confirming your details. How can I help you today?"
-                )
-
-        if any(indicator in confirmation for indicator in negative_indicators):
-            fsm.set_next_state("START")
-            return "Let's try again. Please provide your name."
-
-        return "I didn't understand your response. Please reply with 'yes' if the information is correct, or 'no' if it needs to be changed."
+    # Confirmation step removed: asking for the user's name is sufficient.
 
     def _define_identified_state(self):
         """Define the IDENTIFIED state for ongoing conversation."""

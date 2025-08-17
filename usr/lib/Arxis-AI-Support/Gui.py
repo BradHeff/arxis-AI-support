@@ -1,7 +1,8 @@
 import io
 import base64
 import ttkbootstrap as ttk
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageDraw
+import tkinter as tk
 import tkinter.font as tkFont
 
 from Functions import Version
@@ -42,7 +43,7 @@ def create_widgets(self):
     paddingLA = {"padx": 10, "pady": 5}
     paddingLW = {"padx": 5, "pady": 5}
 
-    topLabel = ttk.Label(self, text="AI Chat using OpenAI API", anchor=ttk.CENTER)
+    topLabel = ttk.Label(self, text="Arxis AI Chat", anchor=ttk.CENTER)
     topLabel.pack(side=ttk.TOP, anchor=ttk.N, expand=False, fill=ttk.X, **paddingLA)
 
     self.lblFrame = ttk.LabelFrame(self, text="Chat Frame", borderwidth=2)
@@ -56,6 +57,23 @@ def create_widgets(self):
     )
     self.chat_display.pack(side=ttk.LEFT, expand=True, fill=ttk.BOTH, **paddingLG)
     self.pic = ttk.PhotoImage(file="")
+
+    try:
+
+        icon_img = Image.new("RGBA", (18, 18), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(icon_img)
+
+        draw.rectangle([3, 2, 13, 13], outline=(230, 230, 230, 230), fill=(0, 0, 0, 0))
+
+        draw.polygon([(9, 2), (13, 2), (13, 6)], fill=(255, 255, 255, 255))
+
+        draw.line([(5, 6), (11, 6)], fill=(255, 255, 255, 255), width=1)
+        draw.line([(5, 8), (11, 8)], fill=(255, 255, 255, 255), width=1)
+        draw.line([(5, 10), (9, 10)], fill=(255, 255, 255, 255), width=1)
+
+        self.copy_icon = ImageTk.PhotoImage(icon_img)
+    except Exception:
+        self.copy_icon = None
 
     scrollbars = ttk.Scrollbar(self.lblFrame, orient=ttk.VERTICAL)
     scrollbars.pack(side=ttk.RIGHT, fill=ttk.Y)
@@ -88,8 +106,8 @@ def create_widgets(self):
         lmargin1=10,
         lmargin2=30,
         rmargin=10,
-        spacing1=5,
-        spacing3=5,
+        spacing1=12,
+        spacing3=12,
     )
 
     self.chat_display.tag_configure(
@@ -100,7 +118,7 @@ def create_widgets(self):
         lmargin1=10,
         lmargin2=10,
         rmargin=10,
-        spacing1=5,
+        spacing1=15,
         spacing3=5,
     )
 
@@ -158,6 +176,108 @@ def create_widgets(self):
     )
     self.button.config(width=18)
     self.button.grid(column=3, row=1, **paddingLW)
+
+    # self.copy_button = ttk.Button(
+    #     lblframe2, text="Copy Response", command=lambda: _copy_last_response(self)
+    # )
+    # self.copy_button.config(width=14, state=ttk.DISABLED)
+    # self.copy_button.grid(column=2, row=1, **paddingLW)
+
+    self.last_agent_response = ""
+
+
+def _copy_last_response(self):
+    try:
+
+        if hasattr(self, "last_agent_response") and self.last_agent_response:
+            self.clipboard_clear()
+            self.clipboard_append(self.last_agent_response)
+
+            if hasattr(self, "statusLabel"):
+                self.statusLabel.config(text="Copied last agent response to clipboard")
+                self.after(
+                    2000, lambda: self.statusLabel.config(text="Ready to chat...")
+                )
+    except Exception:
+        pass
+
+
+def insert_copy_button(self, message_text: str):
+    """Insert an inline Copy button after the current end of the chat display that copies message_text.
+
+    The button will temporarily show 'Copied' for visual feedback.
+    """
+    try:
+        self.chat_display.config(state=ttk.NORMAL)
+
+        if getattr(self, "copy_icon", None) is not None:
+
+            try:
+
+                btn = tk.Button(
+                    self.chat_display,
+                    image=self.copy_icon,
+                    bd=0,
+                    bg="#2e2e2e",
+                    activebackground="#2e2e2e",
+                    highlightthickness=0,
+                    relief=tk.FLAT,
+                    takefocus=0,
+                    borderwidth=0,
+                )
+            except Exception:
+                btn = ttk.Button(self.chat_display, image=self.copy_icon, width=18)
+        else:
+            btn = ttk.Button(self.chat_display, text="Copy", width=6)
+
+        def do_copy():
+            try:
+                self.clipboard_clear()
+                self.clipboard_append(message_text)
+                try:
+
+                    try:
+                        if isinstance(btn, tk.Button):
+                            if hasattr(self, "statusLabel"):
+                                self.statusLabel.config(
+                                    text="Copied response to clipboard"
+                                )
+                                self.after(
+                                    1500,
+                                    lambda: self.statusLabel.config(
+                                        text="Ready to chat..."
+                                    ),
+                                )
+                        else:
+                            btn.config(text="Copied")
+                            if hasattr(self, "statusLabel"):
+                                self.statusLabel.config(
+                                    text="Copied response to clipboard"
+                                )
+                                self.after(
+                                    1500,
+                                    lambda: self.statusLabel.config(
+                                        text="Ready to chat..."
+                                    ),
+                                )
+                            self.after(1500, lambda: btn.config(text="Copy"))
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+        btn.config(command=do_copy)
+
+        self.chat_display.insert(ttk.END, "\n")
+        self.chat_display.window_create(ttk.END, window=btn)
+        self.chat_display.insert(ttk.END, "\n\n")
+
+        self.chat_display.config(state=ttk.DISABLED)
+        self.chat_display.see(ttk.END)
+    except Exception:
+        pass
 
 
 def iconImage():

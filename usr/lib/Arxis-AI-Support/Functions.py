@@ -45,14 +45,20 @@ def split_text_for_streaming(text: str) -> list:
             words = line.split()
             current_chunk = ""
 
-            for word in words:
+            for j, word in enumerate(words):
                 if current_chunk:
                     current_chunk += " " + word
                 else:
                     current_chunk = word
 
-                if len(current_chunk) > 20 or word == words[-1]:
-                    chunks.append(current_chunk)
+                # Emit chunk when it's long enough or at the end of the line.
+                if len(current_chunk) > 20 or j == len(words) - 1:
+                    # If more words remain on the same line, append a trailing space
+                    # so sequentially-inserted chunks do not concatenate words.
+                    if j != len(words) - 1:
+                        chunks.append(current_chunk + " ")
+                    else:
+                        chunks.append(current_chunk)
                     current_chunk = ""
 
         if i < len(lines) - 1:
