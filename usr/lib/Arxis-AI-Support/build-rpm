@@ -8,22 +8,29 @@ APP_LIB_DIR="Arxis-AI-Support"
 # Define source and build directories
 EXEC_DIR=$(pwd)
 
-# Calculate the parent directory two levels up
-PARENT_X3_DIR=$(dirname "$(dirname "$(dirname "$EXEC_DIR")")")
-
-# Define source and build directories
+# Compute project root reliably relative to this script and define source/build dirs
+PROJECT_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 SOURCE_DIR=$EXEC_DIR
 BUILD_DIR=$HOME/rpmbuild/BUILD/$APP_NAME
 SPEC_DIR=$HOME/rpmbuild/SPECS
 ZIP_DIR=$HOME/rpmbuild/SOURCES
-BASH_SCRIPT="../../local/bin"
-USRSOURCE="$PARENT_X3_DIR"
-FUNCTIONS="$SOURCE_DIR/Functions.py"
+USRSOURCE="$PROJECT_ROOT"
+# Local bin path under the project root
+BASH_SCRIPT="$USRSOURCE/local/bin"
+# Path to Functions.py inside the project tree
+FUNCTIONS="$USRSOURCE/usr/lib/Arxis-AI-Support/Functions.py"
 SPEC_FILE="$SPEC_DIR/$APP_NAME.spec"
 
 if [ ! -f "$SPEC_FILE" ]; then
-    echo "Error: Spec file not found at $SPEC_FILE"
-    exit 1
+    # If the project contains a spec, copy it into SPECS so rpmbuild uses it
+    if [ -f "$PROJECT_ROOT/$APP_NAME.spec" ]; then
+        mkdir -p "$SPEC_DIR"
+        cp "$PROJECT_ROOT/$APP_NAME.spec" "$SPEC_FILE"
+        echo "Copied project spec to $SPEC_FILE"
+    else
+        echo "Error: Spec file not found at $SPEC_FILE and no project spec to copy"
+        exit 1
+    fi
 fi
 
 # Read the current version
@@ -36,9 +43,17 @@ fi
 # Ensure build directory exists
 mkdir -p $BUILD_DIR
 
-# Step 1: Update DEBUG variable in the Bash script
+# Ensure PROJECT_ROOT and BASH_SCRIPT are correct (project root under script dir)
+PROJECT_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+BASH_SCRIPT="$PROJECT_ROOT/local/bin"
+
+# Step 1: Update DEBUG variable in the Bash script (guarded)
 echo "Setting DEBUG to false in the Bash script..."
-sed -i 's/^DEBUG=true/DEBUG=false/' $BASH_SCRIPT/$APP_NAME
+if [ -f "$BASH_SCRIPT/$APP_NAME" ]; then
+    sed -i 's/^DEBUG=true/DEBUG=false/' "$BASH_SCRIPT/$APP_NAME" || true
+else
+    echo "Warning: $BASH_SCRIPT/$APP_NAME not found; skipping DEBUG toggle."
+fi
 
 
 # Increment the version
@@ -55,7 +70,7 @@ echo "Version updated from $CURRENT_VERSION to $NEW_VERSION"
 
 # Update version number in Functions.py
 echo "Updating version number in Functions.py..."
-sed -i "s/^Version[[:space:]]*=[[:space:]]*\".*\"/Version = \"$NEW_VERSION\"/" "$FUNCTIONS"
+sed -i "s/^Version_Number[[:space:]]*=[[:space:]]*\".*\"/Version_Number = \"$NEW_VERSION\"/" "$FUNCTIONS"
 
 echo "Version updated to $NEW_VERSION in Functions.py"
 
@@ -74,49 +89,46 @@ VERSION=$(grep -E '^Version:[[:space:]]*' $SPEC_DIR/$APP_NAME.spec | awk '{print
 echo "Confirmed version in spec file: $VERSION"
 
 # Extract the version number from Functions.py to confirm
-FUNC_VERSION=$(grep -E '^Version[[:space:]]*=' "$FUNCTIONS" | cut -d'"' -f2)
+FUNC_VERSION=$(grep -E '^Version_Number[[:space:]]*=' "$FUNCTIONS" | cut -d'"' -f2)
 echo "Confirmed version in Functions.py: $FUNC_VERSION"
 
-# Step 2: Compress the PROJECT-ROOT/usr directory
-echo "Compressing the $USRSOURCE/usr directory..."
+# Step 2: Compress the PROJECT-ROOT/usr directory and include /etc/arxis-ai-support
+echo "Compressing the $USRSOURCE/usr directory and including /etc/arxis-ai-support..."
 if [ -d "$USRSOURCE/usr" ]; then
-    # Sync to ensure all pending disk writes are completed
     sync
-
-    # Create a temporary copy of the directory
     TMP_DIR=$(mktemp -d)
-    cp -R "$USRSOURCE/usr" "$TMP_DIR/"
+    PKG_DIR="$TMP_DIR/$APP_NAME-$VERSION"
+    mkdir -p "$PKG_DIR/usr"
+    # Copy contents of the project usr/ into the package usr/ (avoid creating usr/usr)
+    cp -a "$USRSOURCE/usr/." "$PKG_DIR/usr/" || true
 
-    # Use the temporary copy for tarring, with the --warning=no-file-changed option
-    tar --warning=no-file-changed -czf $APP_NAME-$VERSION.tar.gz -C "$TMP_DIR" usr
+    # Prepare etc/arxis-ai-support inside the package root so tar has <name>-<ver>/etc/...
+    mkdir -p "$PKG_DIR/etc/arxis-ai-support"
+    cat > "$PKG_DIR/etc/arxis-ai-support/env.sample" <<'_SAMPLE_'
+# Example environment file for Arxis AI Support
+# Create /etc/arxis-ai-support/env with the line below and set permissions to 600
+# OPENAI_API_KEY=your_api_key_here
+_SAMPLE_
 
-    # Remove the temporary directory
+    if [ -n "$ARXIS_API_KEY" ]; then
+        printf '%s\n' "OPENAI_API_KEY=${ARXIS_API_KEY}" > "$PKG_DIR/etc/arxis-ai-support/env"
+        chmod 0640 "$PKG_DIR/etc/arxis-ai-support/env" || true
+        echo "Note: env file created for inclusion in source tarball (mode 0640)."
+    else
+        cat > "$PKG_DIR/etc/arxis-ai-support/env" <<'_ENV_'
+# Placeholder environment file created by the package installer.
+# To use Arxis AI Support, create /etc/arxis-ai-support/env with the following line and set file mode to 600:
+# OPENAI_API_KEY=your_api_key_here
+_ENV_
+        chmod 0644 "$PKG_DIR/etc/arxis-ai-support/env" || true
+    fi
+
+    # Create one tarball that contains <name>-<version>/usr and <name>-<version>/etc
+    tar --warning=no-file-changed -czf $APP_NAME-$VERSION.tar.gz -C "$TMP_DIR" "$APP_NAME-$VERSION"
     rm -rf "$TMP_DIR"
 else
     echo "Error: Directory $USRSOURCE/usr does not exist."
     exit 1
-fi
-
-# If ARXIS_API_KEY was exported earlier, embed an /etc env file into the tarball contents
-if [ -n "$ARXIS_API_KEY" ]; then
-    echo "Embedding API key into RPM payload (sensitive)"
-    TMP_ETC_DIR=$(mktemp -d)
-    mkdir -p "$TMP_ETC_DIR/etc/arxis-ai-support"
-    printf '%s\n' "OPENAI_API_KEY=${ARXIS_API_KEY}" > "$TMP_ETC_DIR/etc/arxis-ai-support/env"
-    chown root:root "$TMP_ETC_DIR/etc/arxis-ai-support/env" || true
-    # Prefer making file group-readable by 'users' group to allow desktop access
-    if getent group users >/dev/null 2>&1; then
-        chgrp users "$TMP_ETC_DIR/etc/arxis-ai-support/env" || true
-        chmod 0640 "$TMP_ETC_DIR/etc/arxis-ai-support/env" || true
-        echo "Note: embedded env file will be root:users 0640 in the RPM payload"
-    else
-        # No 'users' group; fall back to world-readable but warn
-        chmod 0644 "$TMP_ETC_DIR/etc/arxis-ai-support/env" || true
-        echo "Warning: embedded env file will be world-readable (0644) because group 'users' not found"
-    fi
-    # Merge this into the tar used for SOURCES
-    tar --append -f $APP_NAME-$VERSION.tar.gz -C "$TMP_ETC_DIR" etc || true
-    rm -rf "$TMP_ETC_DIR"
 fi
 
 # Step 3: Copy the .tar.gz to ZIP_DIR
@@ -142,6 +154,7 @@ cat > $BUILD_DIR/etc/arxis-ai-support/env.sample <<'_SAMPLE_'
 _SAMPLE_
 chmod 0644 $BUILD_DIR/etc/arxis-ai-support/env.sample || true
 
+echo "Building RPM package..."
 # Step 5: Build the RPM package
 echo "Building RPM package..."
 rpmbuild -ba $SPEC_DIR/$APP_NAME.spec

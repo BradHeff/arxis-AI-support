@@ -1,5 +1,6 @@
-Version_Number = "1.0.0.18"
-Version = "".join(["v", Version_Number])
+Version_Number = "2.0.8"
+# Make Version a single string reference so imports using Version work correctly
+Version = Version_Number
 DEBUG = False
 
 

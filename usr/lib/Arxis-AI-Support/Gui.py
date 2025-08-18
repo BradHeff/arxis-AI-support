@@ -10,7 +10,7 @@ from tkinter.font import Font
 
 
 def Window(self):
-    self.W, self.H = 600, 750
+    self.W, self.H = 600, 780
     screen_width = self.winfo_screenwidth() / 2
     screen_width2 = screen_width + (screen_width / 2)
     screen_height = self.winfo_screenheight()
@@ -18,7 +18,7 @@ def Window(self):
     center_x = int(screen_width2 - (self.W / 2))
     center_y = int(screen_height / 2 - (self.H / 2))
     self.geometry(f"{self.W}x{self.H}+{center_x}+{center_y}")
-    self.minsize(600, 750)
+    self.minsize(600, 780)
     self.attributes("-fullscreen", False)
     self.title("".join(["Arxis AI Support ", Version]))
 
